@@ -12,29 +12,29 @@ class STPGConv(nn.Module):
     def __init__(self, config):
         super(STPGConv, self).__init__()
         
-        self.C = config.C
-        self.d = config.d
-        self.V = config.V
-        self.t_size = config.t_size
+        self.C = config.C#特征数量
+        self.d = config.d#位置嵌入维度
+        self.V = config.V#节点数量
+        self.t_size = config.t_size#时间步长
 
         self.x_proj = nn.Linear(self.C, self.C * 2).to(config.device)
         self.se_proj = nn.Linear(self.d, self.C * 2, bias=False).to(config.device)
         self.te_proj = nn.Linear(self.d, self.C * 2, bias=False).to(config.device)
-        self.ln  = nn.LayerNorm(self.C * 2).to(config.device)
+        self.ln  = nn.LayerNorm(self.C * 2).to(config.device)#层归一化
 
     def forward(self, x, S, sape, tape):
-        # x:B,t,V,C
-        # S:B,V,tV
-        # sape: V,d
-        # tape: B,1,1,d
+        # x:B,t,V,C 输入特征
+        # S:B,V,tV 时空关系
+        # sape: V,d 空间位置嵌入
+        # tape: B,1,1,d 时间位置嵌入
         
         # aggregation
         # B,t,V,C -> B,tV,C
         x = x.reshape((-1,self.t_size*self.V,self.C)) #
         # B,(V,tV x tV,C) -> B,V,C
-        x = torch.bmm(S, x)
+        x = torch.bmm(S, x) #bmm函数实现矩阵相乘
         # B,V,C -> B,V,2C
-        x = self.x_proj(x)
+        x = self.x_proj(x) 
 
         # STPGAU
         # V,d x d,2C -> V,2C
@@ -55,12 +55,12 @@ class Gaussian_component(nn.Module):
         super(Gaussian_component, self).__init__()
         self.d = config.d
         self.device = config.device
-        self.mu = nn.Parameter(torch.randn(1, self.d)).to(self.device)
-        self.inv_sigma = nn.Parameter(torch.randn(1,self.d)).to(self.device)
+        self.mu = nn.Parameter(torch.randn(1, self.d)).to(self.device)#均值
+        self.inv_sigma = nn.Parameter(torch.randn(1,self.d)).to(self.device)#标准差的倒数
 
     def forward(self, emb):
         """
-        emb:
+        emb:嵌入向量
         return
         """
         e =  -0.5 * torch.pow(emb -  self.mu.expand_as(emb),2)
@@ -84,14 +84,14 @@ class STPRI(nn.Module):
 
     def forward(self, sape, tape_i, tape_j, srpe, trpe):
         """
-        sape:V,d
-        tape_i: B, 1, 1, d
-        tape_j: B, t, 1, d
-        srpe:V,V,d
-        trpe:t,1,d
+        sape:V,d#空间位置嵌入
+        tape_i: B, 1, 1, d#时间位置嵌入
+        tape_j: B, t, 1, d#时间位置嵌入，t为时间步长
+        srpe:V,V,d#空间相对位置嵌入，每对节点对应一个嵌入向量
+        trpe:t,1,d#时间相对位置嵌入，每对时间对应一个嵌入向量
         """  
 
-        B = tape_j.shape[0]
+        B = tape_j.shape[0]#batch_size
         # V,d -> V,1
         sapei = self.gc_lst[0](sape)
 
@@ -130,13 +130,14 @@ class STPRI(nn.Module):
         gaussian = gaussian.reshape(-1, self.t_size*self.V, self.V)
         gaussian = gaussian.transpose(2, 1)
 
-        return torch.exp(gaussian)
+        return torch.exp(gaussian) 
 
 
     
 
 
 class GLU(nn.Module):
+    """GLU引入门控单元为特征分配不同的权重"""
     def __init__(self, dim, **kwargs):
         super(GLU, self).__init__(**kwargs)
         self.linear = nn.Conv2d(in_channels=dim, out_channels=dim * 2, kernel_size=(1, 1))
@@ -286,7 +287,10 @@ class STPGCNs(nn.Module):
 
 
 class SAPE(nn.Module):
-    """Spatial Absolute-Position Embedding"""
+    """
+    Spatial Absolute-Position Embedding
+    返回位置权重self.sape.weight
+    """
     def __init__(self, config, **kwargs):
         super(SAPE, self).__init__(**kwargs)
 
@@ -339,13 +343,14 @@ class TRPE(nn.Module):
 
 
 class GeneratePad(nn.Module):
+    """生成填充张量"""
     def __init__(self, config,  **kwargs):
         super(GeneratePad, self).__init__(**kwargs)
         self.device = config.device
         self.C = config.C
         self.V = config.V
-        self.d = config.d
-        self.pad_size = config.beta
+        self.d = config.d#位置嵌入维度
+        self.pad_size = config.beta#填充长度
         
     def forward(self, x):
         B = x.shape[0]

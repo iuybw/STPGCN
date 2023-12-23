@@ -123,23 +123,39 @@ class Metric(object):
         
 # print logger
 class Logger(object):
+    """它用于同时将输出信息写入控制台（终端）和文件。"""
     def __init__(self):
-        self.terminal = sys.stdout  #stdout
-        self.file = None
+        self.terminal = sys.stdout  # 保存原始的 sys.stdout 对象，即标准输出流，通常用于向终端打印信息。
+        self.file = None # open(log_file, "a")  # 文件流，将日志输入到文件中。
 
     def open(self, file, mode=None):
-        if mode is None: mode ='w'
-        self.file = open(file, mode)
+            """
+            打开文件并设置文件对象。
 
+            Args:
+                file (str): 文件路径。
+                mode (str, optional): 打开文件的模式。默认为None。
+
+            Returns:
+                None
+            """
+            if mode is None: mode ='w'
+            self.file = open(file, mode)
+ 
     def write(self, message, is_terminal=True, is_file=True):
-        if '\r' in message: is_file=False
+        """
+            @param message 要写入的信息。
+            @param is_terminal 一个布尔值，指定是否将信息输出到终端。
+            @param is_file 一个布尔值，指定是否将信息写入文件。
+        """
+        if '\r' in message: is_file=False#不写入文件
 
-        if is_terminal:
+        if is_terminal:#写入终端
             self.terminal.write(message)
-            self.terminal.flush()
+            self.terminal.flush()#刷新缓冲区，即将缓冲区中的信息立刻写入到文件中。
             #time.sleep(1)
 
-        if is_file:
+        if is_file:#写入文件
             self.file.write(message)
             self.file.flush()
 
@@ -165,9 +181,33 @@ def search_recent_data(train, label_start_idx, points_per_hour, num_prediction):
     return (start_idx, end_idx), (label_start_idx, label_start_idx + num_prediction)
         
 def search_multihop_neighbor(adj, hops = 5):
-    node_cnt = adj.shape[0]
-    hop_arr = np.zeros((adj.shape[0], adj.shape[0]))
+    """
+    计算并返回一个多跳邻接矩阵，其中的每个元素表示相应的两个节点之间的最小跳数
+    初始化：
+
+        node_cnt：邻接矩阵的行数，代表图中的节点数。
+        hop_arr：初始化为零的二维数组，用来存储每对节点间的跳数。
+    跳数计算：
+
+        对于邻接矩阵的每一行（每一个节点），计算它与所有其他节点的跳数。
+        初始时，将所有距离设置为 -1（表示不可达），并将节点到自身的跳数设置为 0。
+    多跳邻接计算：
+
+        对于每个节点，逐步计算到其他节点的跳数。
+        对于每一跳：
+        找出当前节点的直接邻居。
+        更新这些邻居的跳数（如果它们尚未设置或有更小的跳数）。
+        将这些邻居节点添加到待处理列表中，以便在下一轮中计算它们的邻居。
+    返回结果：
+
+        函数最后返回一个三维数组（hop_arr），它的形状是 (node_cnt, node_cnt, 1)。这个数组包含了图中每对节点间的最小跳数。
+    """
+    node_cnt = adj.shape[0]  # 邻接矩阵的行数，代表图中的节点数
+    hop_arr = np.zeros((adj.shape[0], adj.shape[0]))  # 初始化为零的二维数组，用来存储每对节点间的跳数
     for h_idx in range(node_cnt):  # refer node idx(n)
+        # tmp_h_node保存已经考虑过的节点，包括当前节点以及在计算多跳邻接关系时访问过的所有节点。
+        # 在计算多跳邻接关系的过程中，tmp_neibor_step 用于存储在当前跳数下需要考虑的邻居节点。
+        # 每完成一跳的计算，tmp_neibor_step 将更新为下一跳的邻居节点列表。
         tmp_h_node, tmp_neibor_step = [h_idx], [h_idx]  # save spatial corr node  # 0 step(self) first
         hop_arr[h_idx, :] = -1  # if the value exceed maximum hop, it is set to (hops + 1)
         hop_arr[h_idx, h_idx] = 0  # at begin, the hop of self->self is set to 0
@@ -175,6 +215,7 @@ def search_multihop_neighbor(adj, hops = 5):
             tmp_step_node = []  # neighbor nodes in the previous k step
             tmp_step_node_kth = []  # neighbor nodes in the kth step
             for tmp_nei_node in tmp_neibor_step:
+                # np.argwhere函数用于找出非零元素（或为True的元素）的索引
                 tmp_neibor_step = list((np.argwhere(adj[tmp_nei_node] == 1).flatten()))  # find the one step neighbor first
                 tmp_step_node += tmp_neibor_step
                 tmp_step_node_kth += set(tmp_step_node) - set(tmp_h_node)  # the nodes that have appeared in the first k-1 step are no longer needed
@@ -185,10 +226,11 @@ def search_multihop_neighbor(adj, hops = 5):
     return hop_arr[:, :, np.newaxis]
 
 class CleanDataset():
+    """自定义的数据集类，用于加载数据集。"""
     def __init__(self, config):
         
-        self.data_name      = config.data.name
-        self.feature_file   = config.data.feature_file
+        self.data_name      = config.data.name#
+        self.feature_file   = config.data.feature_file#
         self.val_start_idx  = config.data.val_start_idx
         self.alpha          = config.model.alpha
         self.t_size         = config.model.t_size
@@ -200,6 +242,9 @@ class CleanDataset():
 
     def read_data(self):
         if 'PEMS' in self.data_name:
+            # np.load(self.feature_file)[:,:,0]：这一步从原始的三维数组 (17856, 170, 3) 中选择了第三个维度的第一个元素。
+            # 这实际上减少了一个维度，结果是一个二维数组 (17856, 170)
+            # np.expand_dims(…, -1)：然后，在这个二维数组的最后增加了一个新的维度。因此，最终的结果是一个三维数组 (17856, 170, 1)
             data = np.expand_dims(np.load(self.feature_file)[:,:,0],-1)
         else:
             data = np.load(self.feature_file)
@@ -216,9 +261,12 @@ class CleanDataset():
         return (feature - mean) / std
 
     def interaction_range_mask(self, hops = 2, t_size=3):
+        """生成了一个掩码矩阵，用于指示图中节点在给定跳数范围内是否可以相互影响。"""
         hop_arr = self.spatial_distance
         hop_arr[hop_arr != -1] = 1
         hop_arr[hop_arr == -1] = 0
+        # 这行代码首先通过 hop_arr.squeeze() 去除任何单一维度（如果存在），
+        # 然后将结果复制 t_size 次并沿最后一个维度（axis=-1）连接起来。
         return np.concatenate([hop_arr.squeeze()]*t_size, axis=-1) # V,tV
 
 
@@ -262,6 +310,7 @@ class TrafficDataset(Dataset):
         return pos_w, pos_d
 
     def get_idx_lst(self):
+        """生成训练或测试数据的索引列表"""
         idx_lst = []
         start = self.data_range[0]
         end   = self.data_range[1] if self.data_range[1]!=-1 else self.feature.shape[0]
@@ -290,7 +339,7 @@ def to_device(batch, device):
 
 def train(model, data_loader, optimizer, loss_function, epoch, metric, config):
 
-    y_pred, y_true, time_lst = [],[],[]
+    y_pred, y_true, time_lst = [],[],[]#预测值，真实值，时间列表
     for i, batch in enumerate(data_loader):
         target, feature, pos_w, pos_d = to_device(batch, config.device)
         time_start = timer()
@@ -431,18 +480,20 @@ def main(config):
 def default_config(data='PEMS08',workname='record'):
 
     config = edict()
-    config.PATH_LOG  = '%s/Log/'%workname
-    config.PATH_NPY  = '%s/Forecasting/'%workname
-    config.PATH_MOD  = '%s/Model/'%workname
-    config.rid    = 0
+    config.PATH_LOG  = '%s/Log/'%workname #日志文件的路径。
+    config.PATH_NPY  = '%s/Forecasting/'%workname   #预测结果的路径。
+    config.PATH_MOD = '%s/Model/' % workname  # 模型文件的存储路径。
+
+    config.rid    = 0#
     
     # Data Config
+    # 使用 EasyDict，可以像访问对象属性一样访问字典键,通过 d.key 而不是标准的 d['key'] 来访问其值。
     config.data = edict()
-    config.data.name = data
+    config.data.name = data#'PEMS08'
     config.data.path = 'data/dataset/'
 
-    config.data.feature_file = config.data.path+config.data.name+'/flow.npy'
-    config.data.spatial = config.data.path+config.data.name+'/adj.npy'
+    config.data.feature_file = config.data.path+config.data.name+'/flow.npy'#特征文件的路径。
+    config.data.spatial = config.data.path+config.data.name+'/adj.npy'#空间邻接矩阵文件的路径。
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -482,37 +533,37 @@ def default_config(data='PEMS08',workname='record'):
         config.data.test_start_idx  = int(28224 * 0.8)
 
     if config.data.name == 'PEMS08':
-        config.data.num_features    = 1
-        config.data.num_vertices    = 170
-        config.data.points_per_hour = 12
-        config.data.val_start_idx   = int(17856 * 0.6)
-        config.data.test_start_idx  = int(17856 * 0.8)
+        config.data.num_features    = 1#特征维度
+        config.data.num_vertices    = 170#节点数
+        config.data.points_per_hour = 12#每小时的时间片数
+        config.data.val_start_idx   = int(17856 * 0.6)#验证集起始索引
+        config.data.test_start_idx  = int(17856 * 0.8)#测试集起始索引
 
     # Model Config
     config.model = edict()
     config.model.workname   = workname
-    config.model.logger     = Logger()
+    config.model.logger     = Logger()#日志记录器
     config.model.gpu_id     = 0
     config.model.optimizer  = "adam"
-    config.model.learning_rate = 0.002
-    config.model.wd         = 1e-5
-    config.model.early_stop = 150
+    config.model.learning_rate = 0.002#学习率
+    config.model.wd         = 1e-5#权重衰减
+    config.model.early_stop = 150#早停阈值
 
-    config.model.start_epochs  = 0
-    config.model.end_epochs    = 200
-    config.model.init_params   = None
+    config.model.start_epochs  = 0#开始训练的轮数
+    config.model.end_epochs    = 200#结束训练的轮数
+    config.model.init_params   = None#初始化参数
     config.model.device = device
     config.device = device
-    config.model.D = config.data.num_features
+    config.model.D = config.data.num_features#特征维度
 
 
         
-    config.model.num_prediction  = 12    
-    config.model.V = config.data.num_vertices
-    config.model.T = config.model.num_prediction
-    config.model.num_features = config.data.num_features
+    config.model.num_prediction  = 12    #
+    config.model.V = config.data.num_vertices#节点数
+    config.model.T = config.model.num_prediction#预测步长
+    config.model.num_features = config.data.num_features#特征维度
     config.model.week_len = 7
-    config.model.day_len = config.data.points_per_hour * 24
+    config.model.day_len = config.data.points_per_hour * 24#一天的时间片数
     
     
     if not os.path.exists(config.PATH_LOG):
@@ -546,20 +597,20 @@ def run(args):
     config.model.L      = args.L # Number of layer
     config.model.C      = args.C # Dimension of node features
     config.model.d      = args.d # Dimension of position embedding
-    config.model.alpha  = args.a # Alpha
-    config.model.beta   = args.b # Beta
-    config.model.t_size = args.b+1
+    config.model.alpha = args.a  # Alpha 表示目标节点可以访问的最大空间跳变距离
+    config.model.beta   = args.b # Beta 表示目标节点可以访问的最大时间距离
+    config.model.t_size = args.b+1#时间维度
 
     
     config.model.DEBUG = args.DEBUG
-
+    
     config.model.name = (f"{config.data.name}_a{config.model.alpha}b{config.model.beta}"
                          f"_L{config.model.L}_d{config.model.d}_C{config.model.C}_h{config.model.T}p{config.model.T}"
                          f"_b{config.model.batch_size}_lr{math.ceil(config.model.learning_rate*1000)}e-3")
 
-    config.fsummary  = f'{config.PATH_LOG}{config.model.name}.csv'
-    config.model.log_file = f"{config.PATH_LOG}{config.rid}_{config.model.name}.log"
-    config.model.file_forecast  = f"{config.PATH_NPY}{config.rid}_{config.model.name}.npy"
+    config.fsummary  = f'{config.PATH_LOG}{config.model.name}.csv'#记录结果的文件路径
+    config.model.log_file = f"{config.PATH_LOG}{config.rid}_{config.model.name}.log"#日志文件的路径
+    config.model.file_forecast  = f"{config.PATH_NPY}{config.rid}_{config.model.name}.npy"#预测结果的路径
 
     #  data pre-processing
     print('\n1. data pre-processing ...')
@@ -598,7 +649,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_epoch",  type=int, default=200)
     parser.add_argument("--early_stop", type=int, default=150)
     parser.add_argument("--workname",   type=str, default='STPGCN')
-
+    parser.add_argument('--DEBUG', action='store_true', help='启用调试模式')
+    
     args = parser.parse_args()
 
     random.seed(args.seed)
